@@ -209,6 +209,21 @@
             box-shadow: 0 4px 15px rgba(155, 93, 229, 0.4);
             z-index: 10;
         }
+        .pista-musica {
+            position: fixed;
+            top: 27px;
+            right: 80px;
+            background: white;
+            color: var(--lila);
+            font-weight: 700;
+            font-size: 0.8rem;
+            padding: 7px 12px;
+            border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(155, 93, 229, 0.3);
+            z-index: 10;
+            animation: latido 1.6s infinite;
+        }
+        .pista-musica.oculta { display: none; }
         .btn-musica.sonando { animation: latido 1.5s infinite; }
         .btn-musica.llamar { animation: latido 1s infinite; box-shadow: 0 0 0 6px rgba(255, 102, 163, 0.35); }
     </style>
@@ -218,7 +233,10 @@
     <div id="magia"></div>
 
     <!-- Música: musica.mp3 (misma carpeta). Si faltara el archivo, suena una melodía de caja de música integrada -->
-    <audio id="musica" src="musica.mp3" loop preload="auto"></audio>
+    <audio id="musica" loop preload="auto">
+        <source src="musica.mp3" type="audio/mpeg">
+    </audio>
+    <span id="pistaMusica" class="pista-musica">Tocá para escuchar la música 🎶</span>
     <button id="btnMusica" class="btn-musica llamar" aria-label="Activar música">🎵</button>
 
     <div class="tarjeta">
@@ -356,43 +374,63 @@
             usandoSintetizada = true;
             clearTimeout(timerNotas);
             programarMelodia();
-            actualizarBoton(true);
+            marcar(true);
         }
         function detenerSintetizada() {
             clearTimeout(timerNotas);
             if (ctx) ctx.suspend();
             usandoSintetizada = false;
-            actualizarBoton(false);
+            marcar(false);
         }
 
-        function actualizarBoton(sonando) {
+        const pista = document.getElementById("pistaMusica");
+        let archivoFallo = false;
+
+        function marcar(sonando) {
             btn.textContent = sonando ? "🔊" : "🎵";
             btn.classList.toggle("sonando", sonando);
-            btn.classList.remove("llamar");
+            btn.classList.toggle("llamar", !sonando);
+            pista.classList.toggle("oculta", sonando);
+            if (sonando) document.removeEventListener("click", primerToque);
         }
         function estaSonando() { return usandoSintetizada || !audio.paused; }
+
+        let pendiente = false;
         function reproducir() {
-            return audio.play().then(() => actualizarBoton(true)).catch(() => iniciarSintetizada());
+            if (archivoFallo) { iniciarSintetizada(); return; }
+            pendiente = true;
+            audio.play().then(() => { pendiente = false; marcar(true); }).catch(err => {
+                pendiente = false;
+                if (err && err.name === "NotAllowedError") { marcar(false); return; }  // el navegador pide un toque válido: se vuelve a intentar con el próximo
+                archivoFallo = true;                                                   // no se pudo cargar musica.mp3: usa la melodía de respaldo
+                iniciarSintetizada();
+            });
         }
         function pausar() {
             if (usandoSintetizada) detenerSintetizada();
-            else { audio.pause(); actualizarBoton(false); }
+            else audio.pause();
+            marcar(false);
         }
+        // Si musica.mp3 no se encuentra (nombre mal escrito, no subido a GitHub, etc.) el error llega desde <source>
+        audio.querySelector("source").addEventListener("error", () => {
+            archivoFallo = true;
+            if (pendiente && !estaSonando()) { pendiente = false; iniciarSintetizada(); }
+        });
+        audio.addEventListener("error", () => { archivoFallo = true; });
+        audio.addEventListener("pause", () => { if (!usandoSintetizada) marcar(false); });
 
         btn.addEventListener("click", (e) => {
             e.stopPropagation();
             estaSonando() ? pausar() : reproducir();
         });
 
-        // Los navegadores solo dejan sonar con un toque del usuario: arranca con el primer toque en la pantalla
+        // Los navegadores solo dejan sonar con un toque real (deslizar la pantalla no cuenta):
+        // arranca con el primer toque en cualquier parte y, si no pudo, lo vuelve a intentar con el siguiente
         function primerToque(e) {
-            if (btn.contains(e.target)) return;           // el botón de música se maneja solo
-            document.removeEventListener("click", primerToque);
-            document.removeEventListener("touchend", primerToque);
-            if (!estaSonando()) reproducir();
+            if (btn.contains(e.target) || estaSonando()) return;
+            reproducir();
         }
         document.addEventListener("click", primerToque);
-        document.addEventListener("touchend", primerToque);
 
         // ---------- ANIMACIÓN MÁGICA ----------
         const magia = document.getElementById("magia");
@@ -414,6 +452,7 @@
         // Confeti en colores unicornio
         const COLORES = ["#ff66a3", "#9b5de5", "#5ed6c7", "#f2c94c", "#ffb3d9"];
         function lluvia() {
+            if (typeof confetti !== "function") return;
             confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 }, colors: COLORES, shapes: ["star", "circle"], scalar: 1.2 });
         }
         window.addEventListener("load", () => { lluvia(); setTimeout(lluvia, 900); });
